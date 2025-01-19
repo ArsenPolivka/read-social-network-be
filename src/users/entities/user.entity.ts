@@ -6,8 +6,13 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Unique,
+  OneToMany,
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
 import { EUserRoles } from 'src/utils/enums';
+import { Post } from 'src/posts/entities/post.entity';
+import { Book } from 'src/books/entities/book.entity';
 
 @Entity()
 @Unique(['email'])
@@ -33,6 +38,19 @@ export class User {
 
   @Column({ default: '' })
   avatarUrl: string;
+
+  @OneToMany(() => Post, (post) => post.author, {
+    cascade: true,
+  })
+  posts: Post[];
+
+  @ManyToMany(() => Book, (book) => book.users, {
+    cascade: true,
+  })
+  @JoinTable({
+    name: 'users_books',
+  })
+  books: Book[];
 
   @CreateDateColumn()
   createdAt: Date;

@@ -35,4 +35,25 @@ export class UsersController {
   remove(@Param('id') id: string) {
     return this.usersService.remove(id);
   }
+
+  @Post(':userId/books/:bookId')
+  async addBookToUser(
+    @Param('userId') userId: string,
+    @Param('bookId') bookId: string
+  ) {
+    return this.usersService.addBookToUser(userId, bookId);
+  }
+
+  @Delete(':userId/books/:bookId')
+  async removeBookFromUser(
+    @Param('userId') userId: string,
+    @Param('bookId') bookId: string
+  ) {
+    return this.usersService.removeBookFromUser(userId, bookId);
+  }
+
+  @Get(':userId/books')
+  async getBooksOfUser(@Param('userId') userId: string) {
+    return this.usersService.findBooksOfUser(userId);
+  }
 }

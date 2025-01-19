@@ -8,6 +8,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
 
 import { ERepository } from 'src/utils/enums';
+import { Book } from 'src/books/entities/book.entity';
 
 @Injectable()
 export class UsersService {
@@ -16,6 +17,9 @@ export class UsersService {
   constructor(
     @Inject(ERepository.USER_REPOSITORY)
     private userRepository: Repository<User>,
+
+    @Inject(ERepository.BOOK_REPOSITORY)
+    private bookRepository: Repository<Book>,
   ) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
@@ -66,6 +70,55 @@ export class UsersService {
   async remove(id: string): Promise<void> {
     const user = await this.findOne(id);
     await this.userRepository.remove(user);
+  }
+
+  async addBookToUser(userId: string, bookId: string): Promise<User> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['books'],
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+
+    const book = await this.bookRepository.findOne({ where: { id: bookId } });
+    if (!book) {
+      throw new NotFoundException(`Book with ID "${bookId}" not found`);
+    }
+
+    if (!user.books.find((b) => b.id === bookId)) {
+      user.books.push(book);
+      return this.userRepository.save(user);
+    }
+
+    return user;
+  }
+
+  async removeBookFromUser(userId: string, bookId: string): Promise<User> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['books'],
+    });
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+
+    user.books = user.books.filter((book) => book.id !== bookId);
+    return this.userRepository.save(user);
+  }
+
+  async findBooksOfUser(userId: string): Promise<Book[]> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['books'],
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+
+    return user.books;
   }
 
   private async hashPassword(password: string): Promise<string> {
