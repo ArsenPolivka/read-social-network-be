@@ -1,0 +1,166 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "driverAdapters"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+// --- MODULE A: SOCIAL PLATFORM ---
+
+model Profile {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id") // Links to Supabase Auth.users.id
+  username  String   @unique
+  fullName  String?  @map("full_name")
+  bio       String?
+  avatarUrl String?  @map("avatar_url")
+  onboarded Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  readingGoal    ReadingGoal?
+  bookshelfItems BookshelfItem[]
+  reviews        Review[]
+  sessions       ReadingSession[]
+  
+  // Follow System
+  followedBy     UserFollow[] @relation("following")
+  following      UserFollow[] @relation("follower")
+
+  // AI Module
+  uploadedBooks  UploadedBook[]
+
+  @@map("profiles")
+}
+
+model ReadingGoal {
+  id        Int       @id @default(autoincrement())
+  profileId String    @unique @map("profile_id")
+  type      String    // 'BOOKS_PER_YEAR', 'MINUTES_PER_DAY'
+  value     Int
+  startDate DateTime  @default(now()) @map("start_date")
+  endDate   DateTime? @map("end_date")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@map("reading_goals")
+}
+
+model Book {
+  id            String   @id @default(cuid())
+  googleBookId  String?  @unique @map("google_book_id") // Make sure this is optional (?)
+  title         String
+  author        String
+  description   String?  @db.Text  // <--- CHANGED FROM synopsis
+  coverUrl      String?  @map("cover_url")
+  isbn          String?
+  pageCount     Int      @default(0) @map("page_count")
+  publishedYear Int?     @map("published_year")
+  genres        String[]
+  
+  // Relations
+  shelvedBy BookshelfItem[]
+  reviews   Review[]
+  sessions  ReadingSession[]
+
+  @@map("books")
+}
+
+enum ShelfStatus {
+  WANT_TO_READ
+  READING
+  READ
+}
+
+model BookshelfItem {
+  id        String      @id @default(cuid())
+  profileId String      @map("profile_id")
+  bookId    String      @map("book_id")
+  status    ShelfStatus
+  progress  Int         @default(0) // Current page
+  rating    Int?        
+  startedAt DateTime?   @map("started_at")
+  finishedAt DateTime?  @map("finished_at")
+  updatedAt DateTime    @updatedAt
+
+  profile      Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  book         Book          @relation(fields: [bookId], references: [id])
+
+  @@unique([profileId, bookId])
+  @@map("bookshelf_items")
+}
+
+model ReadingSession {
+  id          String   @id @default(cuid())
+  profileId   String   @map("profile_id")
+  bookId      String   @map("book_id")
+  startTime   DateTime @map("start_time")
+  endTime     DateTime @map("end_time")
+  durationMin Int      @map("duration_minutes")
+  pagesRead   Int      @map("pages_read")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  book    Book    @relation(fields: [bookId], references: [id])
+
+  @@map("reading_sessions")
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  profileId String   @map("profile_id")
+  bookId    String   @map("book_id")
+  rating    Int
+  content   String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  book    Book    @relation(fields: [bookId], references: [id])
+
+  @@map("reviews")
+}
+
+model UserFollow {
+  followerId  String @map("follower_id")
+  followingId String @map("following_id")
+
+  follower  Profile @relation("follower", fields: [followerId], references: [id])
+  following Profile @relation("following", fields: [followingId], references: [id])
+
+  @@id([followerId, followingId])
+  @@map("user_follows")
+}
+
+// --- MODULE B: AI ENGINE ---
+
+model UploadedBook {
+  id        String   @id @default(cuid())
+  profileId String   @map("profile_id")
+  filePath  String   @map("file_path") // Path in Supabase Storage
+  title     String
+  status    String   @default("PENDING") // PENDING, PROCESSING, READY, ERROR
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile Profile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  chunks  BookChunk[]
+
+  @@map("uploaded_books")
+}
+
+model BookChunk {
+  id             String                 @id @default(cuid())
+  uploadedBookId String                 @map("uploaded_book_id")
+  content        String                 @db.Text
+  metadata       Json?                  
+  
+  // This is the magic. Supabase pgvector stores the embedding here.
+  // 384 dimensions matches the 'all-minilm' model (very fast/cheap).
+  embedding      Unsupported("vector(384)")? 
+
+  uploadedBook UploadedBook @relation(fields: [uploadedBookId], references: [id], onDelete: Cascade)
+
+  @@map("book_chunks")
+}
