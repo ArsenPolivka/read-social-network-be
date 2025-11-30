@@ -21,4 +21,9 @@ export class SocialController {
   getFeed(@Request() req) {
     return this.socialService.getFeed(req.user.userId);
   }
+
+  @Get('popular')
+  getPopular(@Request() req) {
+    return this.socialService.getPopular(req.user.userId);
+  }
 }

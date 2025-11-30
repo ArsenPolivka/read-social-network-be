@@ -12,7 +12,7 @@ datasource db {
 
 model Profile {
   id        String   @id @default(uuid())
-  userId    String   @unique @map("user_id") // Links to Supabase Auth.users.id
+  userId    String   @unique @map("user_id")
   username  String   @unique
   fullName  String?  @map("full_name")
   bio       String?
@@ -33,6 +33,11 @@ model Profile {
 
   // AI Module
   uploadedBooks  UploadedBook[]
+  aiMessages     AiMessage[]
+
+  // Messaging System (FIXED)
+  sentMessages     ChatMessage[] @relation("sentMessages")
+  receivedMessages ChatMessage[] @relation("receivedMessages")
 
   @@map("profiles")
 }
@@ -68,6 +73,7 @@ model Book {
   sessions  ReadingSession[]
 
   @@map("books")
+  aiMessages AiMessage[]
 }
 
 enum ShelfStatus {
@@ -163,4 +169,36 @@ model BookChunk {
   uploadedBook UploadedBook @relation(fields: [uploadedBookId], references: [id], onDelete: Cascade)
 
   @@map("book_chunks")
+}
+
+model AiMessage {
+  id        String   @id @default(cuid())
+  profileId String   @map("profile_id")
+  bookId    String   @map("book_id")
+  role      String   // 'user' | 'ai'
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@map("ai_messages")
+  @@index([profileId, bookId]) // Optimizes history fetching
+}
+
+model ChatMessage {
+  id          String   @id @default(cuid())
+  senderId    String   @map("sender_id")
+  recipientId String   @map("recipient_id")
+  content     String   @db.Text
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  sender    Profile @relation("sentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient Profile @relation("receivedMessages", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@map("chat_messages")
+  @@index([senderId])
+  @@index([recipientId])
 }

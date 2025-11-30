@@ -24,14 +24,17 @@ export class OllamaService {
   }
 
   // 2. Chat Completion (for RAG)
-  async chat(prompt: string, context: string): Promise<any> {
+  async chat(prompt: string, contextOrSystemPrompt: string): Promise<any> {
     const response = await fetch(`${this.ollamaHost}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'llama3', // Must run: ollama pull llama3
+        model: 'llama3', 
         messages: [
-          { role: 'system', content: `You are a helpful book assistant. Use ONLY the following context to answer: ${context}` },
+          { 
+            role: 'system', 
+            content: contextOrSystemPrompt // This now holds our "You are an expert..." prompt
+          },
           { role: 'user', content: prompt }
         ],
         stream: false, 

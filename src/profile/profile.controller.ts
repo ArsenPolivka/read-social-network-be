@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Put, Body, Param, UseGuards, Request, Query } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ProfileService } from './profile.service';
 
@@ -18,8 +18,20 @@ export class ProfileController {
     return this.profileService.updateProfile(req.user.userId, body);
   }
 
+  @UseGuards(AuthGuard('jwt'))
+  @Get('search')
+  async search(
+    @Request() req, 
+    @Query('q') query: string,
+    @Query('genre') genre: string, // New Param
+    @Query('book') book: string    // New Param
+  ) {
+    return this.profileService.searchUsers(req.user.userId, query || "", { genre, book });
+  }
+
+  @UseGuards(AuthGuard('jwt'))
   @Get(':username')
-  async getPublicProfile(@Param('username') username: string) {
-    return this.profileService.getPublicProfile(username);
+  async getPublicProfile(@Request() req, @Param('username') username: string) {
+    return this.profileService.getPublicProfile(username, req.user.userId);
   }
 }

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { RagService } from './rag.service';
 
@@ -7,9 +7,16 @@ import { RagService } from './rag.service';
 export class AiController {
   constructor(private readonly ragService: RagService) {}
 
+  @Get('history/:bookId')
+  async getHistory(@Request() req, @Param('bookId') bookId: string) {
+    return this.ragService.getChatHistory(req.user.userId, bookId);
+  }
+
   @Post('ask')
-  async askQuestion(@Body() body: { bookId: string; question: string }) {
-    // bookId here refers to the UploadedBook.id (from the ingestion table)
-    return this.ragService.askQuestion(body.bookId, body.question);
+  async askQuestion(
+    @Request() req, 
+    @Body() body: { bookId: string; question: string }
+  ) {
+    return this.ragService.askQuestion(req.user.userId, body.bookId, body.question);
   }
 }

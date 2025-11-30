@@ -16,4 +16,9 @@ export class TrackerController {
   getStats(@Request() req) {
     return this.trackerService.getStats(req.user.userId);
   }
+
+  @Get('history')
+  getHistory(@Request() req) {
+    return this.trackerService.getHistory(req.user.userId);
+  }
 }

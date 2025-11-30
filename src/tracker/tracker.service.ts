@@ -53,4 +53,15 @@ export class TrackerService {
         minutesRead: totalPages._sum.durationMin || 0,
     };
   }
+
+  async getHistory(userId: string) {
+    const profile = await this.prisma.profile.findUnique({ where: { userId } });
+
+    return this.prisma.readingSession.findMany({
+      where: { profileId: profile?.id },
+      include: { book: true }, // Include book info for the list
+      orderBy: { startTime: 'desc' },
+      take: 10 // Last 10 sessions
+    });
+  }
 }
