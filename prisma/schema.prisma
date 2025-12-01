@@ -21,11 +21,17 @@ model Profile {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  favoriteGenres String[]
+
   // Relations
   readingGoal    ReadingGoal?
   bookshelfItems BookshelfItem[]
   reviews        Review[]
   sessions       ReadingSession[]
+  
+  // Social Actions
+  likes          ReviewLike[]     // <--- NEW
+  comments       Comment[]        // <--- NEW
   
   // Follow System
   followedBy     UserFollow[] @relation("following")
@@ -35,7 +41,7 @@ model Profile {
   uploadedBooks  UploadedBook[]
   aiMessages     AiMessage[]
 
-  // Messaging System (FIXED)
+  // Messaging System
   sentMessages     ChatMessage[] @relation("sentMessages")
   receivedMessages ChatMessage[] @relation("receivedMessages")
 
@@ -45,7 +51,7 @@ model Profile {
 model ReadingGoal {
   id        Int       @id @default(autoincrement())
   profileId String    @unique @map("profile_id")
-  type      String    // 'BOOKS_PER_YEAR', 'MINUTES_PER_DAY'
+  type      String    
   value     Int
   startDate DateTime  @default(now()) @map("start_date")
   endDate   DateTime? @map("end_date")
@@ -57,23 +63,23 @@ model ReadingGoal {
 
 model Book {
   id            String   @id @default(cuid())
-  googleBookId  String?  @unique @map("google_book_id") // Make sure this is optional (?)
+  googleBookId  String?  @unique @map("google_book_id")
   title         String
   author        String
-  description   String?  @db.Text  // <--- CHANGED FROM synopsis
+  description   String?  @db.Text
   coverUrl      String?  @map("cover_url")
   isbn          String?
   pageCount     Int      @default(0) @map("page_count")
   publishedYear Int?     @map("published_year")
   genres        String[]
   
-  // Relations
   shelvedBy BookshelfItem[]
   reviews   Review[]
   sessions  ReadingSession[]
+  aiMessages AiMessage[]
+  uploadedFiles UploadedBook[]
 
   @@map("books")
-  aiMessages AiMessage[]
 }
 
 enum ShelfStatus {
@@ -87,7 +93,7 @@ model BookshelfItem {
   profileId String      @map("profile_id")
   bookId    String      @map("book_id")
   status    ShelfStatus
-  progress  Int         @default(0) // Current page
+  progress  Int         @default(0)
   rating    Int?        
   startedAt DateTime?   @map("started_at")
   finishedAt DateTime?  @map("finished_at")
@@ -121,12 +127,49 @@ model Review {
   bookId    String   @map("book_id")
   rating    Int
   content   String?  @db.Text
+  
+  // Counters
+  likesCount    Int      @default(0) @map("likes_count") // <--- NEW
+  commentsCount Int      @default(0) @map("comments_count") // <--- NEW
+  
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  book      Book    @relation(fields: [bookId], references: [id])
+  
+  // Relations
+  likedBy   ReviewLike[] // <--- NEW
+  comments  Comment[]    // <--- NEW
+
+  @@map("reviews")
+}
+
+// --- NEW MODELS FOR SOCIAL ---
+
+model ReviewLike {
+  id        String   @id @default(cuid())
+  profileId String   @map("profile_id")
+  reviewId  String   @map("review_id")
   createdAt DateTime @default(now()) @map("created_at")
 
   profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  book    Book    @relation(fields: [bookId], references: [id])
+  review  Review  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
 
-  @@map("reviews")
+  @@unique([profileId, reviewId]) // Prevent double likes
+  @@map("review_likes")
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  profileId String   @map("profile_id")
+  reviewId  String   @map("review_id")
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  review  Review  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
 }
 
 model UserFollow {
@@ -145,12 +188,14 @@ model UserFollow {
 model UploadedBook {
   id        String   @id @default(cuid())
   profileId String   @map("profile_id")
-  filePath  String   @map("file_path") // Path in Supabase Storage
+  bookId    String?  @map("book_id")
+  filePath  String   @map("file_path") 
   title     String
-  status    String   @default("PENDING") // PENDING, PROCESSING, READY, ERROR
+  status    String   @default("PENDING")
   createdAt DateTime @default(now()) @map("created_at")
 
   profile Profile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  book    Book?       @relation(fields: [bookId], references: [id])
   chunks  BookChunk[]
 
   @@map("uploaded_books")
@@ -162,8 +207,6 @@ model BookChunk {
   content        String                 @db.Text
   metadata       Json?                  
   
-  // This is the magic. Supabase pgvector stores the embedding here.
-  // 384 dimensions matches the 'all-minilm' model (very fast/cheap).
   embedding      Unsupported("vector(384)")? 
 
   uploadedBook UploadedBook @relation(fields: [uploadedBookId], references: [id], onDelete: Cascade)
@@ -175,7 +218,7 @@ model AiMessage {
   id        String   @id @default(cuid())
   profileId String   @map("profile_id")
   bookId    String   @map("book_id")
-  role      String   // 'user' | 'ai'
+  role      String   
   content   String   @db.Text
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -183,7 +226,7 @@ model AiMessage {
   book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
 
   @@map("ai_messages")
-  @@index([profileId, bookId]) // Optimizes history fetching
+  @@index([profileId, bookId])
 }
 
 model ChatMessage {
@@ -194,7 +237,6 @@ model ChatMessage {
   isRead      Boolean  @default(false) @map("is_read")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  // Relations
   sender    Profile @relation("sentMessages", fields: [senderId], references: [id], onDelete: Cascade)
   recipient Profile @relation("receivedMessages", fields: [recipientId], references: [id], onDelete: Cascade)
 

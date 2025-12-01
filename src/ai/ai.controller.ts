@@ -14,9 +14,14 @@ export class AiController {
 
   @Post('ask')
   async askQuestion(
-    @Request() req, 
-    @Body() body: { bookId: string; question: string }
+    @Request() req,
+    @Body() body: { bookId: string; question: string; language?: string },
   ) {
-    return this.ragService.askQuestion(req.user.userId, body.bookId, body.question);
+    return this.ragService.askQuestion(
+      req.user.userId,
+      body.bookId,
+      body.question,
+      body.language ?? 'uk',
+    );
   }
 }

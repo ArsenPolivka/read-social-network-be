@@ -2,13 +2,22 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 @Injectable()
 export class BooksService {
+  private supabase: SupabaseClient;
+
   constructor(
     private prisma: PrismaService,
     private httpService: HttpService,
-  ) {}
+  ) {
+    // 2. Initialize Supabase Client
+    this.supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+  }
 
   // 1. Search Google Books API
   async search(query: string) {
@@ -99,7 +108,10 @@ export class BooksService {
             title: info.title,
             author: info.authors?.[0] || 'Unknown',
             description: info.description,
-            coverUrl: info.imageLinks?.thumbnail?.replace('http:', 'https:'),
+            coverUrl: info.imageLinks?.extraLarge?.replace('http:', 'https:') ||
+              info.imageLinks?.large?.replace('http:', 'https:') ||
+              info.imageLinks?.medium?.replace('http:', 'https:') ||
+              info.imageLinks?.thumbnail?.replace('http:', 'https:'),
             pageCount: info.pageCount || 0,
             publishedYear: parseInt(info.publishedDate?.substring(0, 4)) || null,
             genres: info.categories || [],
@@ -118,6 +130,53 @@ export class BooksService {
       coverUrl: item.volumeInfo.imageLinks?.thumbnail?.replace('http:', 'https:'),
       publishedYear: item.volumeInfo.publishedDate?.substring(0, 4),
       categories: item.volumeInfo.categories || [],
+    };
+  }
+
+  async checkFileStatus(userId: string, bookId: string) {
+    const profile = await this.prisma.profile.findUnique({ where: { userId } });
+    if (!profile) return { exists: false };
+
+    // 1. Check for file
+    const upload = await this.prisma.uploadedBook.findFirst({
+      where: {
+        profileId: profile.id,
+        bookId: bookId,
+        status: 'READY'
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // 2. Check for reading progress (Bookshelf Item)
+    const shelfItem = await this.prisma.bookshelfItem.findUnique({
+      where: {
+        profileId_bookId: {
+          profileId: profile.id,
+          bookId: bookId
+        }
+      }
+    });
+
+    // --- FIX: Handle missing upload ---
+    if (!upload) {
+      return { exists: false, progress: shelfItem?.progress || 1 };
+    }
+
+    // 3. Generate Signed URL (Safe to access upload.filePath now)
+    const { data, error } = await this.supabase
+      .storage
+      .from('books') 
+      .createSignedUrl(upload.filePath, 3600);
+
+    if (error || !data) {
+      console.error("Failed to sign URL", error);
+      return { exists: true, url: null, progress: shelfItem?.progress || 1 }; 
+    }
+
+    return { 
+      exists: true, 
+      url: data.signedUrl,
+      progress: shelfItem?.progress || 1 
     };
   }
 }

@@ -24,4 +24,10 @@ export class BooksController {
   async getBookDetails(@Param('id') googleBookId: string) {
     return this.booksService.getBookDetails(googleBookId);
   }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get(':id/file-status')
+  async checkFileStatus(@Request() req, @Param('id') bookId: string) {
+    return this.booksService.checkFileStatus(req.user.userId, bookId);
+  }
 }

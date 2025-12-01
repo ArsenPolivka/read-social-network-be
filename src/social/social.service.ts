@@ -22,16 +22,12 @@ export class SocialService {
     const follower = await this.prisma.profile.findUnique({ where: { userId: followerUserId } });
     const target = await this.prisma.profile.findUnique({ where: { username: targetUsername } });
 
-    if (!follower) throw new NotFoundException('Follower profile not found');
-    if (!target) throw new NotFoundException('Target user not found');
+    if (!follower || !target) throw new NotFoundException("User not found");
     if (follower.id === target.id) throw new BadRequestException("Cannot follow self");
 
     try {
       return await this.prisma.userFollow.create({
-        data: {
-          followerId: follower.id,
-          followingId: target.id,
-        },
+        data: { followerId: follower.id, followingId: target.id },
       });
     } catch (error: any) {
       if (error.code === 'P2002') throw new BadRequestException('Already following');
@@ -39,11 +35,12 @@ export class SocialService {
     }
   }
 
+  // UPDATED FEED LOGIC: Include 'isLiked' status
   async getFeed(userId: string) {
     const profile = await this.prisma.profile.findUnique({ where: { userId } });
     if (!profile) return [];
 
-    return this.prisma.review.findMany({
+    const reviews = await this.prisma.review.findMany({
       where: {
         profile: {
           followedBy: { some: { followerId: profile.id } }
@@ -51,17 +48,26 @@ export class SocialService {
       },
       include: {
         book: true,
-        profile: { select: { username: true, avatarUrl: true, fullName: true, id: true } }
+        profile: { select: { id: true, username: true, avatarUrl: true, fullName: true } },
+        // Check if current user liked this review
+        likedBy: { 
+            where: { profileId: profile.id },
+            select: { id: true }
+        }
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    // Transform result to add boolean flag
+    return reviews.map(r => ({
+        ...r,
+        isLiked: r.likedBy.length > 0
+    }));
   }
 
-  // SMART POPULAR DATA
   async getPopular(currentUserId: string) {
      const viewer = await this.prisma.profile.findUnique({ where: { userId: currentUserId } });
 
-     // 1. Top Users (by followers)
      const users = await this.prisma.profile.findMany({
         take: 6,
         orderBy: { followedBy: { _count: 'desc' } },
@@ -89,38 +95,88 @@ export class SocialService {
          isFollowing: followingIds.has(u.id)
      }));
 
-     // 2. Dynamic Topics Generation
-     // A. Get most popular books currently being read
-     const popularBooks = await this.prisma.bookshelfItem.groupBy({
-        by: ['bookId'],
-        where: { status: 'READING' },
-        _count: { bookId: true },
-        orderBy: { _count: { bookId: 'desc' } },
-        take: 3
-     });
-
-     // We need to fetch the titles for these book IDs
-     const bookTopics = await Promise.all(popularBooks.map(async (p) => {
-         const book = await this.prisma.book.findUnique({ where: { id: p.bookId } });
-         return book ? { type: 'book', label: `Reading: ${book.title}`, value: book.title } : null;
-     }));
-
-     // B. Get most popular genres (Using raw query for array aggregation if needed, but for simplicity we mock based on logic or use static popular ones if data low)
-     // Since grouping by array elements is hard in Prisma, we'll use a curated list mixed with data if available, 
-     // or just use the ones we know are in the DB.
-     // For this prototype, let's return a mix of static genres and the dynamic books.
-
-     const staticGenres = [
-        { type: 'genre', label: '#SciFi', value: 'Science Fiction' },
-        { type: 'genre', label: '#FantasyReaders', value: 'Fantasy' },
-        { type: 'genre', label: '#NonFictionClub', value: 'Non-Fiction' },
-     ];
-
+     // Mock topics for now as grouping is heavy
      const topics = [
-         ...bookTopics.filter(t => t !== null),
-         ...staticGenres
+         { type: 'genre', label: '#SciFi', value: 'Science Fiction' },
+         { type: 'genre', label: '#Fantasy', value: 'Fantasy' },
+         { type: 'genre', label: '#ClassicLit', value: 'Classics' },
      ];
 
      return { users: mappedUsers, topics };
+  }
+
+  // --- NEW FEATURES ---
+
+  async toggleLike(userId: string, reviewId: string) {
+    const profile = await this.prisma.profile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException("Profile not found");
+
+    // Check if already liked
+    const existingLike = await this.prisma.reviewLike.findUnique({
+      where: {
+        profileId_reviewId: {
+          profileId: profile.id,
+          reviewId: reviewId
+        }
+      }
+    });
+
+    if (existingLike) {
+      // UNLIKE
+      await this.prisma.$transaction([
+        this.prisma.reviewLike.delete({ where: { id: existingLike.id } }),
+        this.prisma.review.update({ 
+          where: { id: reviewId }, 
+          data: { likesCount: { decrement: 1 } } 
+        })
+      ]);
+      return { liked: false };
+    } else {
+      // LIKE
+      await this.prisma.$transaction([
+        this.prisma.reviewLike.create({
+           data: { profileId: profile.id, reviewId }
+        }),
+        this.prisma.review.update({ 
+          where: { id: reviewId }, 
+          data: { likesCount: { increment: 1 } } 
+        })
+      ]);
+      return { liked: true };
+    }
+  }
+
+  async addComment(userId: string, reviewId: string, content: string) {
+    const profile = await this.prisma.profile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException("Profile not found");
+
+    const comment = await this.prisma.comment.create({
+      data: {
+        content,
+        profileId: profile.id,
+        reviewId: reviewId
+      },
+      include: {
+        profile: { select: { username: true, avatarUrl: true, fullName: true } }
+      }
+    });
+
+    // Update counter
+    await this.prisma.review.update({
+        where: { id: reviewId },
+        data: { commentsCount: { increment: 1 } }
+    });
+
+    return comment;
+  }
+
+  async getComments(reviewId: string) {
+    return this.prisma.comment.findMany({
+      where: { reviewId },
+      include: {
+        profile: { select: { username: true, avatarUrl: true, fullName: true } }
+      },
+      orderBy: { createdAt: 'asc' } // Oldest first
+    });
   }
 }

@@ -1,5 +1,10 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 
+type OllamaMessage = {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+};
+
 @Injectable()
 export class OllamaService {
   private ollamaHost = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
@@ -24,22 +29,17 @@ export class OllamaService {
   }
 
   // 2. Chat Completion (for RAG)
-  async chat(prompt: string, contextOrSystemPrompt: string): Promise<any> {
+  async chat(messages: OllamaMessage[]): Promise<string> {
     const response = await fetch(`${this.ollamaHost}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'llama3', 
-        messages: [
-          { 
-            role: 'system', 
-            content: contextOrSystemPrompt // This now holds our "You are an expert..." prompt
-          },
-          { role: 'user', content: prompt }
-        ],
-        stream: false, 
+        model: 'llama3',
+        messages,
+        stream: false,
       }),
     });
+
     const data = await response.json();
     return data.message.content;
   }

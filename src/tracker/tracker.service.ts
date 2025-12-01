@@ -20,24 +20,30 @@ export class TrackerService {
       },
     });
 
-    // 2. Update Bookshelf Progress
-    await this.prisma.bookshelfItem.update({
+    // 2. Update Bookshelf Progress (Upsert prevents errors if not on shelf yet)
+    await this.prisma.bookshelfItem.upsert({
       where: {
         profileId_bookId: { profileId: profile?.id!, bookId: data.bookId },
       },
-      data: {
+      update: {
         progress: data.endPage,
         status: 'READING',
       },
+      create: {
+        profileId: profile?.id!,
+        bookId: data.bookId,
+        progress: data.endPage,
+        status: 'READING',
+      }
     });
 
     return session;
   }
 
+  // ... getStats and getHistory remain the same
   async getStats(userId: string) {
     const profile = await this.prisma.profile.findUnique({ where: { userId } });
     
-    // Aggregations
     const totalBooks = await this.prisma.bookshelfItem.count({
         where: { profileId: profile?.id!, status: 'READ' }
     });
@@ -59,9 +65,9 @@ export class TrackerService {
 
     return this.prisma.readingSession.findMany({
       where: { profileId: profile?.id },
-      include: { book: true }, // Include book info for the list
+      include: { book: true }, 
       orderBy: { startTime: 'desc' },
-      take: 10 // Last 10 sessions
+      take: 10 
     });
   }
 }

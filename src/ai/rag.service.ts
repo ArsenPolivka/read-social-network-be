@@ -24,57 +24,90 @@ export class RagService {
   }
 
   // 2. Ask & Save
-  async askQuestion(userId: string, bookId: string, question: string) {
+  async askQuestion(
+    userId: string,
+    bookId: string,
+    question: string,
+    language: string = 'uk',
+  ) {
     const profile = await this.prisma.profile.findUnique({ where: { userId } });
-    if (!profile) throw new NotFoundException("User profile not found");
+    if (!profile) {
+      throw new NotFoundException('User profile not found');
+    }
 
-    // A. Find Book
-    const libraryBook = await this.prisma.book.findUnique({
-      where: { id: bookId }
-    });
+    const libraryBook = await this.prisma.book.findUnique({ where: { id: bookId } });
+    if (!libraryBook) {
+      throw new NotFoundException('Book not found');
+    }
 
-    if (!libraryBook) throw new NotFoundException("Book not found");
-
-    // B. Save USER Message
+    // 1) Спочатку зберігаємо репліку юзера
     await this.prisma.aiMessage.create({
       data: {
         profileId: profile.id,
-        bookId: bookId,
+        bookId,
         role: 'user',
         content: question,
-      }
+      },
     });
 
-    // C. Generate Answer (Using Logic from previous step)
-    const context = `
-      Title: ${libraryBook.title}
-      Author: ${libraryBook.author}
-      Description: ${libraryBook.description || "No description available."}
-      Published: ${libraryBook.publishedYear}
-      Genres: ${libraryBook.genres?.join(', ')}
-    `;
+    // 2) Тягнемо недавню історію (включно з поточним питанням)
+    const history = await this.prisma.aiMessage.findMany({
+      where: { profileId: profile.id, bookId },
+      orderBy: { createdAt: 'asc' },
+      take: 20, // останні 20 повідомлень, щоб не забити контекст
+    });
+
+    const bookContext = `
+  Title: ${libraryBook.title}
+  Author: ${libraryBook.author}
+  Description: ${libraryBook.description || 'No description available.'}
+  Published: ${libraryBook.publishedYear}
+  Genres: ${libraryBook.genres?.join(', ')}
+  `.trim();
 
     const systemPrompt = `
-      You are an expert literary assistant. 
-      The user is asking about the book "${libraryBook.title}" by ${libraryBook.author}.
-      Use your internal knowledge to answer. 
-      
-      Book Context:
-      ${context}
-    `;
+  You are a specialized assistant for the book "${libraryBook.title}".
 
-    const answerText = await this.ollamaService.chat(question, systemPrompt);
+  LANGUAGE (CRITICAL):
+  - You MUST answer ONLY in this language: "${language}".
+  - Ignore the language of the question.
+  - Do NOT mix in any other language.
 
-    // D. Save AI Message
+  SCOPE:
+  - You may answer any question about this book: сюжет, теми, стиль, персонажі,
+    чи варто читати, для кого підійде, сильні/слабкі сторони тощо.
+  - You MUST NOT discuss topics clearly unrelated to this book.
+
+  If the user clearly asks about something completely unrelated to this book,
+  answer with EXACTLY this single sentence and nothing else:
+  "Я можу обговорювати лише контекст книги. Пробачте."
+
+  Book context:
+  ${bookContext}
+  `.trim();
+
+    // 3) Конструюємо messages для Ollama
+    const messages = [
+      { role: 'system' as const, content: systemPrompt },
+      ...history.map((m) => ({
+        role: m.role === 'ai' ? ('assistant' as const) : ('user' as const),
+        content: m.content,
+      })),
+    ];
+
+    // 4) Виклик моделі
+    const answerText = await this.ollamaService.chat(messages);
+
+    // 5) Зберігаємо відповідь AI
     const aiMessage = await this.prisma.aiMessage.create({
       data: {
         profileId: profile.id,
-        bookId: bookId,
+        bookId,
         role: 'ai',
         content: answerText,
-      }
+      },
     });
-    
+
     return { answer: answerText, messageId: aiMessage.id };
   }
 }

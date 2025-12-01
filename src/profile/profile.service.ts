@@ -62,6 +62,8 @@ export class ProfileService {
         fullName: data.fullName,
         bio: data.bio,
         onboarded: true,
+        // --- NEW: Save Genres ---
+        favoriteGenres: data.favoriteGenres || []
       },
       create: {
         userId,
@@ -69,6 +71,8 @@ export class ProfileService {
         fullName: data.fullName,
         bio: data.bio,
         onboarded: true,
+        // --- NEW: Save Genres ---
+        favoriteGenres: data.favoriteGenres || []
       },
     });
   }

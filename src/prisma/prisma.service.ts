@@ -6,14 +6,26 @@ import { PrismaPg } from '@prisma/adapter-pg';
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor() {
-    // 1. Create a standard PostgreSQL connection pool
+    // 1. Define connection string
     const connectionString = `${process.env.DATABASE_URL}`;
-    const pool = new Pool({ connectionString });
 
-    // 2. Create the Prisma Adapter
+    // 2. Reuse existing global pool in development to prevent "Max Clients" error
+    const globalPool = (global as any).pgPool;
+    let pool;
+
+    if (!globalPool) {
+      pool = new Pool({ connectionString, max: 10 }); // Explicitly limit pool size
+      if (process.env.NODE_ENV !== 'production') {
+        (global as any).pgPool = pool;
+      }
+    } else {
+      pool = globalPool;
+    }
+
+    // 3. Create Adapter
     const adapter = new PrismaPg(pool);
 
-    // 3. Pass the adapter to the parent constructor
+    // 4. Initialize Parent
     super({ adapter });
   }
 
@@ -22,6 +34,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   async onModuleDestroy() {
-    await this.$disconnect();
+    // In dev, don't close the pool on hot-reload, or the next reload will fail
+    if (process.env.NODE_ENV === 'production') {
+       await this.$disconnect();
+    }
   }
 }
